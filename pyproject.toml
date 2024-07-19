@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "teams_puppet"
+version = "0.1.0"
+description = ""
+authors = ["Jheesbrough <71599416+Jheesbrough@users.noreply.github.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+apscheduler = "^3.10.4"
+selenium-wire = "^5.1.0"
+setuptools = "^71.0.3"
+blinker = "<1.8.0"
+webdriver-manager = "^4.0.1"
+pyjwt = "^2.8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
