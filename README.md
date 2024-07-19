@@ -19,3 +19,10 @@ response = requests.get("https://teams.microsoft.com/api/example", headers=heade
 ```
 
 The token is fetched on puppet initialization. If the token expires, a new one will be fetched automatically.
+
+## Installation
+Available on PyPi
+pypi.org/project/teams_puppet/
+```bash
+pip install teams-puppet
+```
