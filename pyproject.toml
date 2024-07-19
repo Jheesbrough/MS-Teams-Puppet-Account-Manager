@@ -4,6 +4,7 @@ version = "0.1.1"
 description = "Retrieves teams users JSON web tokens."
 authors = ["Jheesbrough <71599416+Jheesbrough@users.noreply.github.com>"]
 readme = "README.md"
+repository = "https://github.com/Jheesbrough/MS-Teams-Puppet-Account-Manager"
 
 [tool.poetry.dependencies]
 python = "^3.12"
