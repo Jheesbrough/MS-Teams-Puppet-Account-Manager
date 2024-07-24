@@ -41,8 +41,11 @@ class Puppet:
         self.scheduler.start()
         self.schedule_token_refresh()
 
-        self.token = None
-        self.token = self.get_token()
+        self.teams_token = None
+        self.loki_token = None
+
+        self.teams_token, self.loki_token = self.fetch_new_tokens()
+
 
     def __del__(self):
         """
@@ -50,64 +53,58 @@ class Puppet:
         """
         self.scheduler.shutdown()
 
-    def teams_token(self):
-        """
-        Retrieves the current token, fetching a new one if necessary.
-
-        :return: The current or new token for the specified service.
-        """
-        return self.token
-
     def schedule_token_refresh(self):
         """
         Schedules a token refresh every 5 minutes.
         """
-        self.scheduler.add_job(self.check_token, 'interval', minutes=5)
+        self.scheduler.add_job(self.check_tokens, 'interval', minutes=5)
 
-    def check_token(self):
+    def check_tokens(self):
         """
         Checks the current token, fetching a new one if necessary.
         """
-        if not self.token or self.time_til_expiration() <= datetime.timedelta(minutes=5):
-            self.token = self.fetch_new_token()
+        if not self.teams_token or self.time_til_expiration() <= datetime.timedelta(minutes=5):
+            self.teams_token, self.loki_token = self.fetch_new_tokens()
 
-    def get_token(self):
+    def get_token(self, service: str = "teams") -> str:
         """
         Retrieves the current token, fetching a new one if necessary.
 
         :return: The current or new token for the specified service.
         """
 
-        if not self.token or self.time_til_expiration() <= datetime.timedelta(minutes=5):
-            self.token = self.fetch_new_token()
-        return self.token
+        if not self.teams_token or self.time_til_expiration() <= datetime.timedelta(minutes=5):
+            self.teams_token, self.loki_token = self.fetch_new_tokens()
+
+        if service == "teams":
+            return self.teams_token
+
+        if service == "loki":
+            return self.loki_token
 
     def time_til_expiration(self):
         """
         Calculates the time until the token expires.
         """
-        if not self.token:
+        if not self.teams_token:
             return datetime.timedelta(seconds=-1)
         try:
-            payload = jwt.decode(self.token, options={"verify_signature": False})
+            payload = jwt.decode(self.teams_token, options={"verify_signature": False})
             expiration_time = datetime.datetime.fromtimestamp(payload['exp'])
             return expiration_time - datetime.datetime.now()
         except jwt.DecodeError:
             return datetime.timedelta(seconds=-1) 
 
-    def fetch_new_token(self):
+    def fetch_new_tokens(self):
         """
-        Fetches a new token for teams.
-
-        :param service: The service to fetch the token for.
-        :return: The new token for the specified service.
+        Fetches new tokens for the Teams and Loki services.
+        :return: The new tokens for the Teams and Loki services as a tuple.
         """
-
-        auth_token = None
+        auth_token, loki_token = None, None
 
         try:
             # Initialize Chrome WebDriver
-            service = ChromeService(ChromeDriverManager().install())
+            service =ChromeService(executable_path=ChromeDriverManager().install()) 
             driver = webdriver.Chrome(service=service, options=options)
 
             # Navigate to the Microsoft authentication link
@@ -116,7 +113,7 @@ class Puppet:
             # Wait for the input box with placeholder containing 'email' to be present
             email_input = WebDriverWait(driver, 30).until(
                 EC.presence_of_element_located((
-                    By.XPATH, 
+                    By.XPATH,
                     "//input[@type='email']"
                 ))
             )
@@ -199,6 +196,48 @@ class Puppet:
                 print("Auth token not found.")
                 auth_token = None
 
+            # Get a token for the loki delve endpoint
+            profile_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((
+                    By.XPATH,
+                    "//button[@aria-label='Your profile, status Available']"
+                ))
+            )
+            profile_button.click()
+
+            view_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((
+                    By.XPATH,
+                    "//button[@aria-label='View your profile']"
+                ))
+            )
+            view_button.click()
+
+            # loki.delve.office.com
+
+
+            loki_token_found = False
+            start_time = time.time()
+            last_checked_index = 0
+            # Loop until the loki token is found or 30 seconds have passed
+            while not loki_token_found and time.time() - start_time < 30:
+                new_requests = driver.requests[last_checked_index:]
+                for request in new_requests:
+                    if not request.url.endswith("loki.delve.office.com"):
+                        continue
+                    auth_header = request.headers.get('Authorization')
+                    if auth_header:
+                        if "Bearer" not in auth_header:
+                            continue
+                        if len(auth_header.split(" ")) != 2:
+                            continue
+                        loki_token = auth_header.split(" ")[1]
+                        loki_token_found = True
+                        break
+                last_checked_index = len(driver.requests)
+                time.sleep(0.1)
+
+
         except TimeoutException:
             print("TimeoutException: The page took too long to load"
                   " or an element took too long to be available.")
@@ -214,4 +253,4 @@ class Puppet:
         finally:
             driver.quit()
 
-        return auth_token
+        return auth_token, loki_token
