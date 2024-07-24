@@ -4,6 +4,7 @@ Description: A Python package for getting Teams JSON Web Tokens (JWT) using a he
 """
 
 import datetime
+import os
 import time
 
 import jwt
@@ -104,7 +105,16 @@ class Puppet:
 
         try:
             # Initialize Chrome WebDriver
-            service =ChromeService(executable_path=ChromeDriverManager().install()) 
+            executable_path = ChromeDriverManager().install()
+            
+            # If exepath is not an exe, find an exe in the same folder as the exefile
+            # Until the issue is fixed in the webdriver_manager package
+            # https://github.com/SergeyPirogov/webdriver_manager/pull/666
+            if not executable_path.endswith(".exe"):
+                directory_path = os.path.dirname(executable_path)
+                executable_path = os.path.join(directory_path, "chromedriver.exe")
+
+            service = ChromeService(executable_path=executable_path)
             driver = webdriver.Chrome(service=service, options=options)
 
             # Navigate to the Microsoft authentication link
