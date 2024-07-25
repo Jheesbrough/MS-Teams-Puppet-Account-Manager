@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "teams-puppet"
-version = "0.1.4"
+version = "0.1.5"
 description = "Retrieves teams users JSON web tokens."
 authors = ["Jheesbrough <71599416+Jheesbrough@users.noreply.github.com>"]
 readme = "README.md"
