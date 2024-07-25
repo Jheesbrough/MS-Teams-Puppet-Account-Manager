@@ -10,7 +10,7 @@ puppet = teams_puppet.Puppet("email", "password")
 headers = {
     "accept": "application/json",
     "Content-Type": "application/json",
-    "authorization": "Bearer " + puppet.get_token(),
+    "authorization": "Bearer " + puppet.get_token("teams"),
     "X-ClientType": "MicrosoftTeamsAngular",
     "X-HostAppRing": "general"
 }
@@ -19,6 +19,14 @@ response = requests.get("https://teams.microsoft.com/api/example", headers=heade
 ```
 
 The token is fetched on puppet initialization. If the token expires, a new one will be fetched automatically.
+
+The puppet can either fetch the teams token that uses the Skype backend scope or the token used to access loki.delve.office.com.
+
+```python
+puppet = teams_puppet.Puppet("email", "password")
+skype_token = puppet.get_token("teams")
+loki_token = puppet.get_token("loki")
+```
 
 ## Installation
 Available on PyPi
