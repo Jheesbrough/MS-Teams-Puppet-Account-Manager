@@ -106,14 +106,6 @@ class Puppet:
         try:
             # Initialize Chrome WebDriver
             executable_path = ChromeDriverManager().install()
-            
-            # If exepath is not an exe, find an exe in the same folder as the exefile
-            # Until the issue is fixed in the webdriver_manager package
-            # https://github.com/SergeyPirogov/webdriver_manager/pull/666
-            if not executable_path.endswith(".exe"):
-                directory_path = os.path.dirname(executable_path)
-                executable_path = os.path.join(directory_path, "chromedriver.exe")
-
             service = ChromeService(executable_path=executable_path)
             driver = webdriver.Chrome(service=service, options=options)
 
