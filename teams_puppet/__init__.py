@@ -4,8 +4,8 @@ Description: A Python package for getting Teams JSON Web Tokens (JWT) using a he
 """
 
 import datetime
-import os
 import time
+import warnings
 
 import jwt
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -20,6 +20,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 options = webdriver.ChromeOptions()
 options.add_argument("--log-level=3")
+options.add_argument("--start-maximized")
 options.add_argument("--headless=new")
 options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
@@ -101,7 +102,7 @@ class Puppet:
             expiration_time = datetime.datetime.fromtimestamp(payload['exp'])
             return expiration_time - datetime.datetime.now()
         except jwt.DecodeError:
-            return datetime.timedelta(seconds=-1) 
+            return datetime.timedelta(seconds=-1)
 
     def fetch_new_tokens(self):
         """
@@ -202,7 +203,7 @@ class Puppet:
             last_checked_index = 0
 
             # Loop until the auth token is found or 30 seconds have passed
-            while not auth_token_found and time.time() - start_time < 30:
+            while not auth_token_found and time.time() - start_time < 45:
                 # Only check new requests
                 new_requests = driver.requests[last_checked_index:]
                 for request in new_requests:
@@ -226,28 +227,46 @@ class Puppet:
                 time.sleep(0.1)
 
             if not auth_token:
-                print("Auth token not found.")
-                auth_token = None
+                warnings.warn("Skype API token not found. Continuing without it.")
 
-            # Get a token for the loki delve endpoint
-            profile_button = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((
-                    By.XPATH,
-                    "//button[@aria-label='Your profile, status Available']"
-                ))
-            )
-            profile_button.click()
+            attempts = 0
+            element_found = False
 
-            view_button = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((
-                    By.XPATH,
-                    "//button[@aria-label='View your profile']"
-                ))
-            )
-            view_button.click()
+            while attempts < 3 and not element_found:
+                profile_button = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((
+                        By.XPATH,
+                        "//button[@aria-label='Chat']"
+                    ))
+                )
+                profile_button.click()
 
-            # loki.delve.office.com
+                time.sleep(2)
+                view_button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((
+                        By.XPATH,
+                        "//span[contains(text(), '(You)')]/ancestor::li[@aria-haspopup='dialog']"
+                    ))
+                )
+                view_button.click()
 
+                time.sleep(2)
+                try:
+                    WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((
+                            By.XPATH,
+                            "//*[contains(text(), 'Contact information')]"
+                        ))
+                    )
+                    element_found = True
+                except TimeoutException:
+                    attempts += 1
+
+            if not element_found:
+                warnings.warn((
+                    "Unable to fetch Loki Delve token,"
+                    "Continuing without the Loki token."
+                              ))
 
             loki_token_found = False
             start_time = time.time()
@@ -256,7 +275,8 @@ class Puppet:
             while not loki_token_found and time.time() - start_time < 30:
                 new_requests = driver.requests[last_checked_index:]
                 for request in new_requests:
-                    if not request.url.endswith("loki.delve.office.com"):
+                    host = request.headers.get('Host')
+                    if host and not host.endswith('loki.delve.office.com'):
                         continue
                     auth_header = request.headers.get('Authorization')
                     if auth_header:
@@ -269,7 +289,6 @@ class Puppet:
                         break
                 last_checked_index = len(driver.requests)
                 time.sleep(0.1)
-
 
         except TimeoutException as exc:
             raise TimeoutError('Timed out while fetching tokens.') from exc
