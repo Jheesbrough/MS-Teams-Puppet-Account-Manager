@@ -30,7 +30,7 @@ loki_token = puppet.get_token("loki")
 
 ## Installation
 Available on PyPi
-[pypi.org/project/teams_puppet/](https://pypi.org/project/teams_puppet/)
+[pypi.org/project/teams-puppet/](https://pypi.org/project/teams-puppet/)
 ```bash
 pip install teams-puppet
 ```
