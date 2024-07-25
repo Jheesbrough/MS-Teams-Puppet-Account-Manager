@@ -23,6 +23,13 @@ options.add_argument("--log-level=3")
 options.add_argument("--headless=new")
 options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
+class AccountError(Exception):
+    """Exception raised for errors in the account sign-in process."""
+
+    def __init__(self, message="There was an error with the account sign-in process."):
+        self.message = message
+        super().__init__(self.message)
+
 class Puppet:
     """
     A class to represent a Teams Puppet user, used to provide tokens for teams.
@@ -141,29 +148,53 @@ class Puppet:
             sign_in_button = WebDriverWait(driver, 30).until(
                 EC.element_to_be_clickable((
                     By.XPATH,
-                    "//input[@value='Sign in']"
+                    "//button[contains(text(), 'Sign in')] | //input[@value='Sign in']"
                 ))
             )
             sign_in_button.click()
 
             try:
-                # Wait for the 'Stay signed in?' prompt to be present
-                WebDriverWait(driver, 30).until(
-                    EC.presence_of_element_located((
+                WebDriverWait(driver, 100).until(
+                    lambda driver: driver.find_element(
                         By.XPATH,
-                        "//div[contains(text(), 'Stay signed in?')]"
-                    ))
+                        """
+                        //*[contains(text(), 'Stay signed in?') 
+                        or contains(text(), 'Sign-in is blocked') 
+                        or contains(text(), 'password is incorrect')]
+                        """
+                    )
                 )
-                # Find the 'Yes' button within the prompt and click it
-                yes_button = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((
-                        By.XPATH,
-                        ".//input[@value='Yes']"
+
+                if driver.find_elements(
+                    By.XPATH,
+                    "//*[contains(text(), 'Stay signed in?')]"
+                ):
+                    yes_button = WebDriverWait(driver, 3).until(
+                        EC.element_to_be_clickable((
+                            By.XPATH,
+                            ".//input[@value='Yes']"
+                        )),
+                    )
+                    yes_button.click()
+
+                if driver.find_elements(
+                    By.XPATH,
+                    "//*[contains(text(), 'Sign-in is blocked')]"
+                ):
+                    raise AccountError((
+                        "Sign-in is blocked. "
+                        "Please try again later or reset account password "
+                        f"for user {self.username}."
                     ))
-                )
-                yes_button.click()
+
+                if driver.find_elements(
+                    By.XPATH,
+                    "//*[contains(text(), 'Your account or password is incorrect.')]"
+                ):
+                    raise AccountError(f"Invalid credentials for user {self.username}.")
+
+
             except TimeoutException:
-                # If the 'Stay signed in?' prompt does not appear, pass
                 pass
 
             auth_token_found = False
@@ -240,18 +271,12 @@ class Puppet:
                 time.sleep(0.1)
 
 
-        except TimeoutException:
-            print("TimeoutException: The page took too long to load"
-                  " or an element took too long to be available.")
-            auth_token = None
-        except NoSuchElementException:
-            print("NoSuchElementException: The script could not find"
-                  " an expected element on the page.")
-            auth_token = None
+        except TimeoutException as exc:
+            raise TimeoutError('Timed out while fetching tokens.') from exc
+        except NoSuchElementException as exc:
+            raise NoSuchElementException('Element not found while fetching tokens.') from exc
         except WebDriverException as e:
-            print("WebDriverException: An error occurred",
-                 f" with the WebDriver. Error: {e}")
-            auth_token = None
+            raise RuntimeError(f"An error occurred while fetching tokens: {e}") from e
         finally:
             driver.quit()
 
