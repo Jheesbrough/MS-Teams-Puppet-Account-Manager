@@ -22,7 +22,7 @@ The token is fetched on puppet initialization. If the token expires, a new one w
 
 ## Installation
 Available on PyPi
-[pypi.org/project/teams_puppet/](pypi.org/project/teams_puppet/)
+[pypi.org/project/teams_puppet/](https://pypi.org/project/teams_puppet/)
 ```bash
 pip install teams-puppet
 ```
