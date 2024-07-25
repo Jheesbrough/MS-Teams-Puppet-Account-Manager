@@ -242,14 +242,14 @@ class Puppet:
                 profile_button.click()
 
                 time.sleep(2)
+                # The view button is sometimes obscured, so script execution is needed
                 view_button = WebDriverWait(driver, 5).until(
                     EC.element_to_be_clickable((
                         By.XPATH,
                         "//span[contains(text(), '(You)')]/ancestor::li[@aria-haspopup='dialog']"
                     ))
                 )
-                view_button.click()
-
+                driver.execute_script("arguments[0].click();", view_button)
                 time.sleep(2)
                 try:
                     WebDriverWait(driver, 10).until(
@@ -275,8 +275,7 @@ class Puppet:
             while not loki_token_found and time.time() - start_time < 30:
                 new_requests = driver.requests[last_checked_index:]
                 for request in new_requests:
-                    host = request.headers.get('Host')
-                    if host and not host.endswith('loki.delve.office.com'):
+                    if not request.host or not request.host.endswith('loki.delve.office.com'):
                         continue
                     auth_header = request.headers.get('Authorization')
                     if auth_header:
@@ -289,6 +288,8 @@ class Puppet:
                         break
                 last_checked_index = len(driver.requests)
                 time.sleep(0.1)
+            if not loki_token:
+                warnings.warn("Loki Delve token was not found. Continuing without it.")
 
         except TimeoutException as exc:
             raise TimeoutError('Timed out while fetching tokens.') from exc
