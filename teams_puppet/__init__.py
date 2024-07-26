@@ -242,7 +242,8 @@ class Puppet:
             while attempts < 3 and not element_found:
                 click_element_by_xpath(
                     driver,
-                    "//button[@aria-label='Chat']"
+                    "//button[@aria-label='Chat']",
+                    method='script'
                 )
 
                 time.sleep(2)
