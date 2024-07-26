@@ -168,7 +168,7 @@ class Puppet:
             )
 
             try:
-                WebDriverWait(driver, 100).until(
+                WebDriverWait(driver, 30).until(
                     lambda driver: driver.find_element(
                         By.XPATH,
                         """
