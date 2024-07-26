@@ -164,7 +164,7 @@ class Puppet:
 
             click_element_by_xpath(
                 driver,
-                "//button[contains(text(),'Sign in') | //input[@value='Sign in']"
+                "//button[contains(text(),'Sign in')] | //input[@value='Sign in']"
             )
 
             try:
