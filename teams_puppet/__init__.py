@@ -24,6 +24,19 @@ options.add_argument("--start-maximized")
 options.add_argument("--headless=new")
 options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
+def click_element_by_xpath(driver, xpath, timeout=30, method='click'):
+    """
+    Helper function for selenium to click an element by its XPath.
+    Finds element twice to avoid StaleElementReferenceException.
+    """
+    WebDriverWait(driver, timeout).until(
+        EC.element_to_be_clickable((By.XPATH, xpath))
+    )
+    if method == 'click':
+        driver.find_element(By.XPATH, xpath).click()
+    elif method == 'script':
+        driver.execute_script("arguments[0].click();", driver.find_element(By.XPATH, xpath))
+
 class AccountError(Exception):
     """Exception raised for errors in the account sign-in process."""
 
@@ -48,7 +61,7 @@ class Puppet:
 
         self.scheduler = BackgroundScheduler()
         self.scheduler.start()
-        self.schedule_token_refresh()
+        self._schedule_token_refresh()
 
         self.teams_token = None
         self.loki_token = None
@@ -62,7 +75,7 @@ class Puppet:
         """
         self.scheduler.shutdown()
 
-    def schedule_token_refresh(self):
+    def _schedule_token_refresh(self):
         """
         Schedules a token refresh every 5 minutes.
         """
@@ -74,6 +87,12 @@ class Puppet:
         """
         if not self.teams_token or self.time_til_expiration() <= datetime.timedelta(minutes=5):
             self.teams_token, self.loki_token = self.fetch_new_tokens()
+
+    def refresh_tokens(self):
+        """
+        Refreshes the current tokens.
+        """
+        self.teams_token, self.loki_token = self.fetch_new_tokens()
 
     def get_token(self, service: str = "teams") -> str:
         """
@@ -129,13 +148,10 @@ class Puppet:
             )
             email_input.send_keys(self.username)
 
-            next_button = WebDriverWait(driver, 30).until(
-                EC.element_to_be_clickable((
-                    By.XPATH,
-                    "//input[@value='Next']"
-                ))
+            click_element_by_xpath(
+                driver,
+                "//input[@value='Next']"
             )
-            next_button.click()
 
             # Wait for the password input box with placeholder containing 'Password' to be present
             password_input = WebDriverWait(driver, 30).until(
@@ -146,13 +162,10 @@ class Puppet:
             )
             password_input.send_keys(self.password)
 
-            sign_in_button = WebDriverWait(driver, 30).until(
-                EC.element_to_be_clickable((
-                    By.XPATH,
-                    "//button[contains(text(), 'Sign in')] | //input[@value='Sign in']"
-                ))
+            click_element_by_xpath(
+                driver,
+                "//button[contains(text(),'Sign in') | //input[@value='Sign in']"
             )
-            sign_in_button.click()
 
             try:
                 WebDriverWait(driver, 100).until(
@@ -170,13 +183,7 @@ class Puppet:
                     By.XPATH,
                     "//*[contains(text(), 'Stay signed in?')]"
                 ):
-                    yes_button = WebDriverWait(driver, 3).until(
-                        EC.element_to_be_clickable((
-                            By.XPATH,
-                            ".//input[@value='Yes']"
-                        )),
-                    )
-                    yes_button.click()
+                    click_element_by_xpath(driver, ".//input[@value='Yes']")
 
                 if driver.find_elements(
                     By.XPATH,
@@ -233,23 +240,19 @@ class Puppet:
             element_found = False
 
             while attempts < 3 and not element_found:
-                profile_button = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((
-                        By.XPATH,
-                        "//button[@aria-label='Chat']"
-                    ))
+                click_element_by_xpath(
+                    driver,
+                    "//button[@aria-label='Chat']"
                 )
-                profile_button.click()
 
                 time.sleep(2)
                 # The view button is sometimes obscured, so script execution is needed
-                view_button = WebDriverWait(driver, 5).until(
-                    EC.element_to_be_clickable((
-                        By.XPATH,
-                        "//span[contains(text(), '(You)')]/ancestor::li[@aria-haspopup='dialog']"
-                    ))
+                click_element_by_xpath(
+                    driver,
+                    "//span[contains(text(), '(You)')]/ancestor::li[@aria-haspopup='dialog']",
+                    method='script'
                 )
-                driver.execute_script("arguments[0].click();", view_button)
+
                 time.sleep(2)
                 try:
                     WebDriverWait(driver, 10).until(
