@@ -1,19 +1,18 @@
 [tool.poetry]
 name = "teams-puppet"
-version = "0.1.6"
+version = "0.2.0"
 description = "Retrieves teams users JSON web tokens."
 authors = ["Jheesbrough <71599416+Jheesbrough@users.noreply.github.com>"]
 readme = "README.md"
 repository = "https://github.com/Jheesbrough/MS-Teams-Puppet-Account-Manager"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.10"
 apscheduler = "^3.10.4"
-selenium-wire = "^5.1.0"
 setuptools = "^71.0.3"
 blinker = "<1.8.0"
 webdriver-manager = "^4.0.1"
-pyjwt = "^2.8.0"
+selenium = "^4.23.1"
 
 [build-system]
 requires = ["poetry-core"]
