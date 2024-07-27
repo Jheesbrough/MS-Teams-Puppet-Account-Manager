@@ -2,20 +2,16 @@
 Name: teams_puppet
 Description: A Python package for getting Teams JSON Web Tokens (JWT) using a headless browser.
 """
-
+import json
 import datetime
-import time
-import warnings
 
-import jwt
 from apscheduler.schedulers.background import BackgroundScheduler
-from selenium.common.exceptions import (NoSuchElementException,
-                                        TimeoutException, WebDriverException)
+from selenium.common.exceptions import ( TimeoutException )
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
-from seleniumwire import webdriver
+from selenium import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
 
 options = webdriver.ChromeOptions()
@@ -85,8 +81,16 @@ class Puppet:
         """
         Checks the current token, fetching a new one if necessary.
         """
-        if not self.teams_token or self.time_til_expiration() <= datetime.timedelta(minutes=5):
-            self.teams_token, self.loki_token = self.fetch_new_tokens()
+        expiring_soon = datetime.timedelta(minutes=5)
+
+        teams_token = json.loads(self.teams_token)
+        loki_token = json.loads(self.loki_token)
+
+        teams_token_expiring_soon = self.time_til_expiration(teams_token) <= expiring_soon
+        loki_token_expiring_soon = self.time_til_expiration(loki_token) <= expiring_soon
+
+        if teams_token_expiring_soon or loki_token_expiring_soon:
+            self.refresh_tokens()
 
     def refresh_tokens(self):
         """
@@ -101,27 +105,29 @@ class Puppet:
         :return: The current or new token for the specified service.
         """
 
-        if not self.teams_token or self.time_til_expiration() <= datetime.timedelta(minutes=5):
-            self.teams_token, self.loki_token = self.fetch_new_tokens()
+        expiring_soon = datetime.timedelta(minutes=5)
 
         if service == "teams":
-            return self.teams_token
+            teams_token = json.loads(self.teams_token)
+            if self.time_til_expiration(teams_token) <= expiring_soon:
+                self.refresh_tokens()
+            return teams_token['secret']
 
         if service == "loki":
-            return self.loki_token
+            loki_token = json.loads(self.loki_token)
+            if self.time_til_expiration(loki_token) <= expiring_soon:
+                self.refresh_tokens()
+            return loki_token['secret']
 
-    def time_til_expiration(self):
+    def time_til_expiration(self, json_token):
         """
-        Calculates the time until the token expires.
+        Calculates the time until the tokens expires.
         """
-        if not self.teams_token:
-            return datetime.timedelta(seconds=-1)
-        try:
-            payload = jwt.decode(self.teams_token, options={"verify_signature": False})
-            expiration_time = datetime.datetime.fromtimestamp(payload['exp'])
-            return expiration_time - datetime.datetime.now()
-        except jwt.DecodeError:
-            return datetime.timedelta(seconds=-1)
+
+        if not json_token:
+            return datetime.timedelta(0)
+        expires_on = datetime.datetime.fromtimestamp(int(json_token['expiresOn']))
+        return expires_on - datetime.datetime.now()
 
     def fetch_new_tokens(self):
         """
@@ -130,178 +136,114 @@ class Puppet:
         """
         auth_token, loki_token = None, None
 
-        try:
-            # Initialize Chrome WebDriver
-            executable_path = ChromeDriverManager().install()
-            service = ChromeService(executable_path=executable_path)
-            driver = webdriver.Chrome(service=service, options=options)
+        # Initialize Chrome WebDriver
+        executable_path = ChromeDriverManager().install()
+        service = ChromeService(executable_path=executable_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
-            # Navigate to the Microsoft authentication link
-            driver.get("https://teams.microsoft.com")
+        # Navigate to the Microsoft authentication link
+        driver.get("https://teams.microsoft.com")
 
-            # Wait for the input box with placeholder containing 'email' to be present
-            email_input = WebDriverWait(driver, 30).until(
-                EC.presence_of_element_located((
+        # Wait for the input box with placeholder containing 'email' to be present
+        email_input = WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((
+                By.XPATH,
+                "//input[@type='email']"
+            ))
+        )
+        email_input.send_keys(self.username)
+
+        click_element_by_xpath(
+            driver,
+            "//input[@value='Next']"
+        )
+
+        # Wait for the password input box with placeholder containing 'Password' to be present
+        password_input = WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((
                     By.XPATH,
-                    "//input[@type='email']"
+                    "//input[contains(@placeholder, 'Password')]"
                 ))
-            )
-            email_input.send_keys(self.username)
+        )
+        password_input.send_keys(self.password)
 
+        click_element_by_xpath(
+            driver,
+            "//button[contains(text(),'Sign in')] | //input[@value='Sign in']"
+        )
+
+        try:
+            WebDriverWait(driver, 30).until(
+                lambda driver: driver.find_element(
+                    By.XPATH,
+                    """
+                    //*[contains(text(), 'Stay signed in?') 
+                    or contains(text(), 'Sign-in is blocked') 
+                    or contains(text(), 'password is incorrect')]
+                    """
+                )
+            )
+
+            if driver.find_elements(
+                By.XPATH,
+                "//*[contains(text(), 'Stay signed in?')]"
+            ):
+                click_element_by_xpath(driver, ".//input[@value='Yes']")
+
+            if driver.find_elements(
+                By.XPATH,
+                "//*[contains(text(), 'Sign-in is blocked')]"
+            ):
+                raise AccountError((
+                    "Sign-in is blocked. "
+                    "Please try again later or reset account password "
+                    f"for user {self.username}."
+                ))
+
+            if driver.find_elements(
+                By.XPATH,
+                "//*[contains(text(), 'Your account or password is incorrect.')]"
+            ):
+                raise AccountError(f"Invalid credentials for user {self.username}.")
+
+
+        except TimeoutException:
+            pass
+
+        element_found = False
+        attempts = 0
+        while not element_found and attempts < 3:
             click_element_by_xpath(
                 driver,
-                "//input[@value='Next']"
+                "//button[@aria-label='Chat']",
+                method='script'
             )
-
-            # Wait for the password input box with placeholder containing 'Password' to be present
-            password_input = WebDriverWait(driver, 30).until(
-                EC.presence_of_element_located((
-                        By.XPATH,
-                        "//input[contains(@placeholder, 'Password')]"
-                    ))
-            )
-            password_input.send_keys(self.password)
-
             click_element_by_xpath(
                 driver,
-                "//button[contains(text(),'Sign in')] | //input[@value='Sign in']"
+                "//span[contains(text(), '(You)')]/ancestor::li[@aria-haspopup='dialog']",
+                method='script'
             )
-
             try:
-                WebDriverWait(driver, 30).until(
-                    lambda driver: driver.find_element(
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((
                         By.XPATH,
-                        """
-                        //*[contains(text(), 'Stay signed in?') 
-                        or contains(text(), 'Sign-in is blocked') 
-                        or contains(text(), 'password is incorrect')]
-                        """
-                    )
-                )
-
-                if driver.find_elements(
-                    By.XPATH,
-                    "//*[contains(text(), 'Stay signed in?')]"
-                ):
-                    click_element_by_xpath(driver, ".//input[@value='Yes']")
-
-                if driver.find_elements(
-                    By.XPATH,
-                    "//*[contains(text(), 'Sign-in is blocked')]"
-                ):
-                    raise AccountError((
-                        "Sign-in is blocked. "
-                        "Please try again later or reset account password "
-                        f"for user {self.username}."
+                        "//*[contains(text(), 'Contact information')]"
                     ))
-
-                if driver.find_elements(
-                    By.XPATH,
-                    "//*[contains(text(), 'Your account or password is incorrect.')]"
-                ):
-                    raise AccountError(f"Invalid credentials for user {self.username}.")
-
-
+                )
+                element_found = True
             except TimeoutException:
-                pass
+                attempts += 1
 
-            auth_token_found = False
-            start_time = time.time()
-            last_checked_index = 0
+        driver.implicitly_wait(5)
 
-            # Loop until the auth token is found or 30 seconds have passed
-            while not auth_token_found and time.time() - start_time < 45:
-                # Only check new requests
-                new_requests = driver.requests[last_checked_index:]
-                for request in new_requests:
-                    # Access the Authorization header if present
-                    auth_header = request.headers.get('Authorization')
-                    if auth_header:
-                        if "Bearer" not in auth_header:
-                            continue
-                        if len(auth_header.split(" ")) != 2:
-                            continue
-                        auth_token = auth_header.split(" ")[1]
-                        try:
-                            payload = jwt.decode(auth_token, options={"verify_signature": False})
-                            if payload["aud"] == "https://api.spaces.skype.com":
-                                auth_token_found = True
-                                break
-                        except jwt.DecodeError:
-                            pass
-                # Update the last checked index for the next iteration
-                last_checked_index = len(driver.requests)
-                time.sleep(0.1)
+        all_keys = driver.execute_script('return Object.keys(window.localStorage);')
 
-            if not auth_token:
-                warnings.warn("Skype API token not found. Continuing without it.")
+        for key in all_keys:
+            if key.lower().endswith('https://loki.delve.office.com//.default--'):
+                loki_token = driver.execute_script(f'return window.localStorage.getItem("{key}");')
+            if key.lower().endswith('https://outlook.office.com//.default--'):
+                auth_token = driver.execute_script(f'return window.localStorage.getItem("{key}");')
 
-            attempts = 0
-            element_found = False
-
-            while attempts < 3 and not element_found:
-                click_element_by_xpath(
-                    driver,
-                    "//button[@aria-label='Chat']",
-                    method='script'
-                )
-
-                time.sleep(2)
-                # The view button is sometimes obscured, so script execution is needed
-                click_element_by_xpath(
-                    driver,
-                    "//span[contains(text(), '(You)')]/ancestor::li[@aria-haspopup='dialog']",
-                    method='script'
-                )
-
-                time.sleep(2)
-                try:
-                    WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((
-                            By.XPATH,
-                            "//*[contains(text(), 'Contact information')]"
-                        ))
-                    )
-                    element_found = True
-                except TimeoutException:
-                    attempts += 1
-
-            if not element_found:
-                warnings.warn((
-                    "Unable to fetch Loki Delve token,"
-                    "Continuing without the Loki token."
-                              ))
-
-            loki_token_found = False
-            start_time = time.time()
-            last_checked_index = 0
-            # Loop until the loki token is found or 30 seconds have passed
-            while not loki_token_found and time.time() - start_time < 30:
-                new_requests = driver.requests[last_checked_index:]
-                for request in new_requests:
-                    if not request.host or not request.host.endswith('loki.delve.office.com'):
-                        continue
-                    auth_header = request.headers.get('Authorization')
-                    if auth_header:
-                        if "Bearer" not in auth_header:
-                            continue
-                        if len(auth_header.split(" ")) != 2:
-                            continue
-                        loki_token = auth_header.split(" ")[1]
-                        loki_token_found = True
-                        break
-                last_checked_index = len(driver.requests)
-                time.sleep(0.1)
-            if not loki_token:
-                warnings.warn("Loki Delve token was not found. Continuing without it.")
-
-        except TimeoutException as exc:
-            raise TimeoutError('Timed out while fetching tokens.') from exc
-        except NoSuchElementException as exc:
-            raise NoSuchElementException('Element not found while fetching tokens.') from exc
-        except WebDriverException as e:
-            raise RuntimeError(f"An error occurred while fetching tokens: {e}") from e
-        finally:
-            driver.quit()
+        driver.quit()
 
         return auth_token, loki_token
